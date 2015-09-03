@@ -241,7 +241,8 @@ function formatTime(time) {
   }
   var d = new Date(time);
   return padleft(String(d.getHours()), 2, '0') + ":" +
-    padleft(String(d.getMinutes()), 2, '0') + "." +
+    padleft(String(d.getMinutes()), 2, '0') + ":" +
+    padleft(String(d.getSeconds()), 2, '0') + "." +
     padleft(String(d.getMilliseconds()), 3, '0');
 }
 
