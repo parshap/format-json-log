@@ -17,7 +17,7 @@
     "bunyan"
   ],
   "author": "Parsha Pourkhomami",
-  "license": "ISC",
+  "license": "WTFPL",
   "bugs": {
     "url": "https://github.com/parshap/format-json-log/issues"
   },
