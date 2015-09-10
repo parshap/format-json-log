@@ -12,6 +12,7 @@ var find = require("array-find");
 var http = require("http");
 var parseHeader = require("./parse-http-header");
 var chalk = require("chalk");
+var useragent = require("useragent");
 
 var levels = {
   'trace': 10,
@@ -23,6 +24,10 @@ var levels = {
 };
 
 var INDENT = "  ";
+
+function indent(str) {
+  return lpad(str, INDENT);
+}
 
 function getLevelName(level) {
   return find(Object.keys(levels), function(name) {
@@ -101,12 +106,10 @@ function formatJSONLog(obj) {
 
   if (obj.req) {
     retval.push(lpad(formatReq(obj.req), INDENT));
-    retval.push("\n");
   }
 
   if (obj.res) {
     retval.push(lpad(formatRes(obj.res), INDENT));
-    retval.push("\n");
   }
 
   if (obj.err) {
@@ -147,17 +150,127 @@ function formatBytes(bytes) {
 }
 
 function formatReq(req) {
-  var retval = [];
-  retval.push(req.method);
-  retval.push(" ");
-  retval.push((req.originalUrl || req.url || req.path));
   var headers = getHeaders(req);
-  var length = getContentLength(headers);
-  if (length != null) {
+  var retval = [];
+  retval.push(chalk.white(req.method));
+  retval.push(" ");
+  retval.push(chalk.bold(formatUrl(req)));
+  var lengthAndTypeDesc = formatContentLengthAndType(headers);
+  if (lengthAndTypeDesc) {
     retval.push(" ");
-    retval.push(formatBytes(length));
+    retval.push(lengthAndTypeDesc);
+  }
+  retval.push("\n");
+  var uaDesc = headers && formatUA(headers["user-agent"]);
+  var remoteDesc = [
+    uaDesc,
+    req.remoteAddress,
+  ].filter(Boolean).join(" / ");
+  if (remoteDesc) {
+    retval.push(indent(remoteDesc));
+    retval.push("\n");
+  }
+  var headersDesc = formatHeaders(headers);
+  if (headersDesc) {
+    retval.push(indent(headersDesc));
   }
   return retval.join("");
+}
+
+function formatUrl(req) {
+  return req.originalUrl || req.url || req.path;
+}
+
+function formatUA(userAgentString) {
+  var parsed = useragent.lookup(userAgentString);
+  if (parsed.family !== "Other") {
+    return parsed.toString();
+  }
+  else {
+    return parsed.source;
+  }
+}
+
+function formatRes(res) {
+  var headers = getHeaders(res);
+  var retval = [];
+  retval.push(formatStatusCode(res.statusCode));
+  retval.push(" ");
+  retval.push(chalk.dim(http.STATUS_CODES[res.statusCode]));
+  var lengthAndTypeDesc = formatContentLengthAndType(headers);
+  if (lengthAndTypeDesc) {
+    retval.push(" ");
+    retval.push(lengthAndTypeDesc);
+  }
+  retval.push("\n");
+  var headersDesc = formatHeaders(headers);
+  if (headersDesc) {
+    retval.push(indent(headersDesc));
+  }
+  return retval.join("");
+}
+
+function formatContentLengthAndType(headers) {
+  var length = headers && getContentLength(headers);
+  var contentType = headers && headers["content-type"];
+  var contentEncoding = headers && headers["content-encoding"];
+  var retval = [];
+  if (contentType) {
+    retval.push(chalk.dim(contentType));
+  }
+  if (contentEncoding) {
+    retval.push(chalk.dim(contentEncoding));
+  }
+  if (length != null) {
+    retval.push(formatBytes(length));
+  }
+  return retval.join(" ");
+}
+
+function formatHeaders(headers) {
+  headers = omit(headers, [
+    "date",
+    "host",
+    "connection",
+    "content-length",
+    "content-encoding",
+    "referer",
+    "origin",
+    "user-agent",
+    "content-type",
+    "etag",
+    "access-control-allow-origin",
+    "dnt",
+    "x-requested-with",
+    // Accept
+    "accept",
+    "accept-language",
+    "accept-encoding",
+    "accept-ranges",
+    "accept-charset",
+    // X-Forwarded
+    "x-forwarded-for",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    // Cookies
+    "cookie",
+    "set-cookie",
+    // Caching
+    "pragma",
+    "cache-control",
+    "if-none-match",
+    "if-modified-since",
+    "last-modified",
+    "vary",
+    // CSP
+    "content-security-policy",
+    "upgrade-insecure-requests",
+    // New Relic
+    "x-newrelic-id",
+    "x-newrelic-transaction",
+    "x-newrelic-app-data",
+  ]);
+  return formatObject(headers);
 }
 
 function getContentLength(headers) {
@@ -169,20 +282,6 @@ function getContentLength(headers) {
   }
 }
 
-function formatRes(res) {
-  var retval = [];
-  retval.push(formatStatusCode(res.statusCode));
-  retval.push(" ");
-  retval.push(http.STATUS_CODES[res.statusCode]);
-  var headers = getHeaders(res);
-  var length = getContentLength(headers);
-  if (length != null) {
-    retval.push(" ");
-    retval.push(formatBytes(length));
-  }
-  return retval.join("");
-}
-
 function formatStatusCode(statusCode) {
   if (statusCode >= 500) {
     return chalk.red(statusCode);
@@ -191,16 +290,16 @@ function formatStatusCode(statusCode) {
     return chalk.yellow(statusCode);
   }
   else {
-    return statusCode;
+    return chalk.green(statusCode);
   }
 }
 
-function getHeaders(obj) {
-  if (obj.headers) {
-    return obj.headers;
+function getHeaders(reqOrRes) {
+  if (reqOrRes.headers) {
+    return reqOrRes.headers;
   }
-  else if (typeof obj.header === "string") {
-    return parseHeader(obj.header);
+  else if (typeof reqOrRes.header === "string") {
+    return parseHeader(reqOrRes.header);
   }
 }
 
