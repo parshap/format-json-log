@@ -13,6 +13,45 @@ var http = require("http");
 var parseHeader = require("./parse-http-header");
 var chalk = require("chalk");
 var useragent = require("useragent");
+chalk.enabled = true;
+
+// Terminology:
+//
+//  * "Get": Return a raw JS value for something (e.g., `getUrl()`).
+//  * "Format": Pretty-print a value to be human-readable (e.g.,
+//     formatTime()) — sometimes also includes styling.
+//  * "Style": Add styling (color, etc.) to a formatted value.
+//
+
+// ## Utility
+
+function isEmpty(obj) {
+  return ! obj || Object.keys(obj).length === 0;
+}
+
+function formatObject(obj) {
+  return yaml.stringify(obj, null, 2).slice(0, -1);
+}
+
+// ## String Manipulation
+//
+
+var INDENT = "  ";
+
+function indent(str) {
+  return lpad(str, INDENT);
+}
+
+// Small wrapper around Array#join
+function join(parts, seperator) {
+  if (seperator == null) {
+    seperator = "";
+  }
+  return parts.filter(Boolean).join(seperator);
+}
+
+// ## Log Levels
+//
 
 var levels = {
   'trace': 10,
@@ -23,20 +62,16 @@ var levels = {
   'fatal': 60
 };
 
-var INDENT = "  ";
-
-function indent(str) {
-  return lpad(str, INDENT);
-}
-
 function getLevelName(level) {
   return find(Object.keys(levels), function(name) {
     return level <= levels[name];
   });
 }
 
-function formatLevel(level) {
-  var name = getLevelName(level);
+// ## Text Style (color)
+//
+
+function styleLevel(level, name) {
   if (level < 30) {
     // trace and debug get no color
     return chalk.white(name);
@@ -51,79 +86,78 @@ function formatLevel(level) {
   }
   else {
     // Errors and fatals
+    // jjj
     return chalk.bgRed.black(name);
   }
 }
 
+
+// ## Format
+//
+
 function formatJSONLog(obj) {
   var message = obj.msg || "";
-  var isShortMessage = message.length <= 60 && message.indexOf("\n") === -1;
+  var isShortMessage = message.length <= 20 && message.indexOf("\n") === -1;
+  var levelName = getLevelName(obj.level);
+  var styledLevelName = styleLevel(obj.level, levelName);
+  var metadata = getMetadata(obj);
 
   var retval = [];
 
-  if (obj.time != null) {
-    retval.push(formatTime(obj.time));
-  }
+  var a = join([
+    // Timestamp
+    (obj.time != null) && formatTime(obj.time),
+    // Hostname and PID
+    join([obj.hostname, obj.pid], "#"),
+    // Level
+    (obj.level != null) && padright(styledLevelName, 5, " "),
+    // Name
+    obj.name &&
+      obj.name.split(":")
+      .map(function(name) {
+        return chalk.cyan(name);
+      })
+      .join(":"),
+    // Message
+    isShortMessage && chalk.yellow(message),
+    // Duration
+    (typeof obj.duration === "number") && (obj.duration + chalk.dim("ms")),
+  ], " ");
 
-  if (obj.hostname != null) {
-    retval.push(" ");
-    retval.push(obj.hostname);
-  }
+  var b = indent(join([
+    ( ! isShortMessage) && message,
+    obj.req && formatReq(obj.req),
+    obj.res && formatRes(obj.res),
+    obj.err && formatError(obj.err),
+    ( ! isEmpty(metadata)) && formatObject(metadata),
+  ], "\n"));
 
-  if (obj.pid != null) {
-    retval.push("#");
-    retval.push(obj.pid);
-  }
+  retval.push(join([
+    a,
+    b,
+  ], "\n"));
 
-  if (obj.level != null) {
-    retval.push(" ");
-    retval.push(padright(formatLevel(obj.level), 5, " "));
-  }
-
-  if (obj.name) {
-    retval.push(" ");
-    retval.push(formatName(obj.name));
-  }
-
-  if (isShortMessage) {
-    retval.push(" ");
-    retval.push(formatMessage(message));
-  }
-
-  if (obj.duration) {
-    retval.push(" ");
-    retval.push(formatDuration(obj.duration));
-    retval.push("\n");
-  }
-  else {
-    retval.push("\n");
-  }
-
-  if ( ! isShortMessage) {
-    retval.push(lpad(message, INDENT));
-    retval.push("\n");
-  }
-
-  if (obj.req) {
-    retval.push(lpad(formatReq(obj.req), INDENT));
-  }
-
-  if (obj.res) {
-    retval.push(lpad(formatRes(obj.res), INDENT));
-  }
-
-  if (obj.err) {
-    retval.push(lpad(formatError(obj.err), INDENT));
-    retval.push("\n");
-  }
-
-  var metadata = getMetadata(obj);
-  if ( ! isEmpty(metadata)) {
-    retval.push(lpad(formatObject(metadata), INDENT));
-  }
-
-  return retval.filter(Boolean).join("");
+  return join(retval, "") + "\n";
 }
+
+function getMetadata(obj) {
+  return omit(obj, [
+    "v",
+    "src",
+    "level",
+    "time",
+    "name",
+    "hostname",
+    "pid",
+    "msg",
+    "duration",
+    "req",
+    "res",
+    "err",
+  ]);
+}
+
+// ### Error
 
 function formatError(err) {
   var retval = [];
@@ -145,86 +179,131 @@ function formatError(err) {
   return retval.filter(Boolean).join("");
 }
 
+// ### Bytes
+//
+
 function formatBytes(bytes) {
-  return Math.round(bytes / 1024) + chalk.dim("kB");
+  if (bytes <= 1024) {
+    return Math.round(bytes) + chalk.dim("B");
+  }
+  else {
+    return Math.round(bytes / 1024) + chalk.dim("kB");
+  }
 }
+
+// ### HTTP Req & Res
+//
 
 function formatReq(req) {
   var headers = getHeaders(req);
-  var retval = [];
-  retval.push(chalk.white(req.method));
-  retval.push(" ");
-  retval.push(chalk.bold(formatUrl(req)));
-  var lengthAndTypeDesc = formatContentLengthAndType(headers);
-  if (lengthAndTypeDesc) {
-    retval.push(" ");
-    retval.push(lengthAndTypeDesc);
-  }
-  retval.push("\n");
-  var uaDesc = headers && formatUA(headers["user-agent"]);
-  var remoteDesc = [
-    uaDesc,
-    req.remoteAddress,
-  ].filter(Boolean).join(" / ");
-  if (remoteDesc) {
-    retval.push(indent(remoteDesc));
-    retval.push("\n");
-  }
-  var headersDesc = formatHeaders(headers);
-  if (headersDesc) {
-    retval.push(indent(headersDesc));
-  }
-  return retval.join("");
+  var userAgent = headers["user-agent"];
+  return join([
+    // method + url + content desc
+    join([
+      chalk.white(req.method),
+      chalk.bold(getUrl(req)),
+      formatContentDesc(headers), // type + encoding + size
+    ], " "),
+    indent(join([
+      formatRemoteDesc(userAgent, req.remoteAddress), // ua + ip
+      formatHeaders(headers),
+    ], "\n")),
+  ], "\n");
 }
 
-function formatUrl(req) {
+function formatRes(res) {
+  var headers = getHeaders(res);
+  var statusText = http.STATUS_CODES[res.statusCode];
+  return join([
+    // method + url + content desc
+    join([
+      styleStatusCode(res.statusCode),
+      chalk.dim(statusText),
+      formatContentDesc(headers), // type + encoding + size
+    ], " "),
+    indent(formatHeaders(headers)),
+  ], "\n");
+}
+
+function styleStatusCode(statusCode) {
+  if (statusCode >= 500) {
+    return chalk.red(statusCode);
+  }
+  else if (statusCode >= 400) {
+    return chalk.yellow(statusCode);
+  }
+  else {
+    return chalk.green(statusCode);
+  }
+}
+
+function getUrl(req) {
   return req.originalUrl || req.url || req.path;
 }
 
+// #### "Remote Description"
+//
+// User Agent + IP
+//
+
+function formatRemoteDesc(userAgent, remoteAddress) {
+  var uaDesc = formatUA(userAgent);
+  return join([
+    uaDesc,
+    remoteAddress,
+  ], "; ");
+}
+
+// User Agent
 function formatUA(userAgentString) {
   var parsed = useragent.lookup(userAgentString);
   if (parsed.family !== "Other") {
-    return parsed.toString();
+    return join([
+      parsed.toAgent(),
+      parsed.os.family !== "Other" && parsed.os.toString(),
+      parsed.device.family !== "Other" && parsed.device.toString(),
+    ], "; ");
   }
   else {
     return parsed.source;
   }
 }
 
-function formatRes(res) {
-  var headers = getHeaders(res);
-  var retval = [];
-  retval.push(formatStatusCode(res.statusCode));
-  retval.push(" ");
-  retval.push(chalk.dim(http.STATUS_CODES[res.statusCode]));
-  var lengthAndTypeDesc = formatContentLengthAndType(headers);
-  if (lengthAndTypeDesc) {
-    retval.push(" ");
-    retval.push(lengthAndTypeDesc);
-  }
-  retval.push("\n");
-  var headersDesc = formatHeaders(headers);
-  if (headersDesc) {
-    retval.push(indent(headersDesc));
-  }
-  return retval.join("");
-}
+// #### "Content Description"
+//
+// Content Type + Content Encoding + Content Length
+//
 
-function formatContentLengthAndType(headers) {
+function formatContentDesc(headers) {
   var length = headers && getContentLength(headers);
   var contentType = headers && headers["content-type"];
   var contentEncoding = headers && headers["content-encoding"];
-  var retval = [];
-  if (contentType) {
-    retval.push(chalk.dim(contentType));
+  return join([
+    contentType && chalk.dim(contentType),
+    contentEncoding && chalk.dim(contentEncoding),
+    (length != null) && formatBytes(length),
+  ], "; ");
+}
+
+function getContentLength(headers) {
+  if (headers && headers["content-length"]) {
+    var length = parseInt(headers["content-length"]);
+    if ( ! isNaN(length)) {
+      return length;
+    }
   }
-  if (contentEncoding) {
-    retval.push(chalk.dim(contentEncoding));
+}
+
+// #### HTTP Headers
+//
+
+function getHeaders(reqOrRes) {
+  if (reqOrRes.headers) {
+    return reqOrRes.headers;
   }
-  if (length != null) {
-    retval.push(formatBytes(length));
+  else if (typeof reqOrRes.header === "string") {
+    return parseHeader(reqOrRes.header);
   }
-  return retval.join(" ");
 }
 
 function formatHeaders(headers) {
@@ -273,66 +352,8 @@ function formatHeaders(headers) {
   return formatObject(headers);
 }
 
-function getContentLength(headers) {
-  if (headers && headers["content-length"]) {
-    var length = parseInt(headers["content-length"]);
-    if ( ! isNaN(length)) {
-      return length;
-    }
-  }
-}
-
-function formatStatusCode(statusCode) {
-  if (statusCode >= 500) {
-    return chalk.red(statusCode);
-  }
-  else if (statusCode >= 400) {
-    return chalk.yellow(statusCode);
-  }
-  else {
-    return chalk.green(statusCode);
-  }
-}
-
-function getHeaders(reqOrRes) {
-  if (reqOrRes.headers) {
-    return reqOrRes.headers;
-  }
-  else if (typeof reqOrRes.header === "string") {
-    return parseHeader(reqOrRes.header);
-  }
-}
-
-function isEmpty(obj) {
-  return ! obj || Object.keys(obj).length === 0;
-}
-
-function formatObject(obj) {
-  return yaml.stringify(obj, null, 2);
-}
-
-function getMetadata(obj) {
-  return omit(obj, [
-    "v",
-    "src",
-    "level",
-    "time",
-    "name",
-    "hostname",
-    "pid",
-    "msg",
-    "duration",
-    "req",
-    "res",
-    "err",
-  ]);
-}
-
-function formatDuration(duration) {
-  if (typeof duration === "number") {
-    return duration + chalk.dim("ms");
-  }
-}
+// ### Time
+//
 
 function formatTime(time) {
   if ( ! time) {
@@ -345,18 +366,8 @@ function formatTime(time) {
     padleft(String(d.getMilliseconds()), 3, '0');
 }
 
-function formatMessage(message) {
-  return chalk.yellow(message);
-}
-
-function formatName(name) {
-  return name
-    .split(":")
-    .map(function(name) {
-      return chalk.cyan(name);
-    })
-    .join(":");
-}
+// ## Parse & Format Stream
+//
 
 function formatLine(line) {
   // Check if first byte is ascii "{"
