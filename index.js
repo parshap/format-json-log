@@ -200,7 +200,7 @@ function formatReq(req) {
   return join([
     // method + url + content desc
     join([
-      chalk.white(req.method),
+      styleMethod(req.method),
       chalk.bold(getUrl(req)),
       formatContentDesc(headers), // type + encoding + size
     ], " "),
@@ -209,6 +209,15 @@ function formatReq(req) {
       formatHeaders(headers),
     ], "\n")),
   ], "\n");
+}
+
+function styleMethod(method) {
+  if (method === "GET" || method === "HEAD") {
+    return chalk.cyan(method);
+  }
+  else {
+    return chalk.yellow(method);
+  }
 }
 
 function formatRes(res) {
@@ -312,7 +321,7 @@ function formatHeaders(headers) {
     "host",
     "connection",
     "content-length",
-    "content-encoding",
+    "content-ncoding",
     "transfer-encoding",
     "referer",
     "origin",
