@@ -313,6 +313,7 @@ function formatHeaders(headers) {
     "connection",
     "content-length",
     "content-encoding",
+    "transfer-encoding",
     "referer",
     "origin",
     "user-agent",
