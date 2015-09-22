@@ -196,7 +196,7 @@ function formatBytes(bytes) {
 
 function formatReq(req) {
   var headers = getHeaders(req);
-  var userAgent = headers["user-agent"];
+  var userAgent = headers && headers["user-agent"];
   return join([
     // method + url + content desc
     join([
