@@ -323,7 +323,6 @@ function formatHeaders(headers) {
     "content-length",
     "content-ncoding",
     "transfer-encoding",
-    "referer",
     "origin",
     "user-agent",
     "content-type",
@@ -359,6 +358,9 @@ function formatHeaders(headers) {
     "x-newrelic-transaction",
     "x-newrelic-app-data",
   ]);
+  if (headers.referer && headers.referer.length > 63) {
+    headers.referer = headers.referer.slice(0, 60) + "...";
+  }
   return formatObject(headers);
 }
 
