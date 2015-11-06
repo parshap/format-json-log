@@ -63,6 +63,9 @@ var levels = {
 };
 
 function getLevelName(level) {
+  if (levels[level] != null) {
+    return level;
+  }
   return find(Object.keys(levels), function(name) {
     return level <= levels[name];
   });
@@ -71,23 +74,18 @@ function getLevelName(level) {
 // ## Text Style (color)
 //
 
-function styleLevel(level, name) {
-  if (level < 30) {
-    // trace and debug get no color
-    return chalk.white(name);
+function styleLevel(level) {
+  if (level === "fatal" || level === "error") {
+    return chalk.bgRed.black(level);
   }
-  else if (level < 40) {
-    // info
-    return chalk.blue(name);
+  else if (level === "warn") {
+    return chalk.magenta(level);
   }
-  else if (level < 50) {
-    // warn
-    return chalk.magenta(name);
+  else if (level === "info") {
+    return chalk.blue(level);
   }
   else {
-    // Errors and fatals
-    // jjj
-    return chalk.bgRed.black(name);
+    return chalk.white(level);
   }
 }
 
@@ -99,7 +97,7 @@ function formatJSONLog(obj) {
   var message = obj.msg || "";
   var isShortMessage = message.length <= 20 && message.indexOf("\n") === -1;
   var levelName = getLevelName(obj.level);
-  var styledLevelName = styleLevel(obj.level, levelName);
+  var styledLevelName = styleLevel(levelName);
   var metadata = getMetadata(obj);
 
   var retval = [];
@@ -110,7 +108,8 @@ function formatJSONLog(obj) {
     // Hostname and PID
     join([obj.hostname, obj.pid], "#"),
     // Level
-    (obj.level != null) && padright(styledLevelName, 5, " "),
+    (levelName != null) && padright(styledLevelName, 5, " "),
+    (levelName == null && obj.level != null) && obj.level,
     // Name
     obj.name &&
       obj.name.split(":")
