@@ -1,6 +1,6 @@
 {
   "name": "format-json-log",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Human-readable json logs",
   "main": "index.js",
   "bin": "cli.js",
